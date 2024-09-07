@@ -2,11 +2,14 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import List, Literal
+from typing import List
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Enum
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import create_engine, Column, Integer, String, Float, Enum, ForeignKey
+from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
+from sqlalchemy.exc import IntegrityError
+
+from models.bet import BetCreate, BetResponse
+from models.event import EventCreate, EventResponse
 
 load_dotenv()
 
@@ -20,31 +23,28 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    smart_contract_address = Column(String, unique=True, index=True)
+    network = Column(String)
+    description = Column(String)
+    bets = relationship("Bet", back_populates="event")
+
+
 class Bet(Base):
     __tablename__ = "bets"
 
     id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"))
     wallet_address = Column(String, index=True)
-    bet_name = Column(String, index=True)
     prediction = Column(Enum("YES", "NO", name="prediction_type"))
     tokens = Column(Float)
+    event = relationship("Event", back_populates="bets")
 
 
 Base.metadata.create_all(bind=engine)
-
-
-class BetCreate(BaseModel):
-    wallet_address: str
-    bet_name: str
-    prediction: Literal["YES", "NO"]
-    tokens: float = Field(gt=0)
-
-
-class BetResponse(BetCreate):
-    id: int
-
-    class Config:
-        from_attributes = True
 
 
 def get_db():
@@ -55,35 +55,67 @@ def get_db():
         db.close()
 
 
+@app.post("/events/", response_model=EventResponse)
+async def create_event(event: EventCreate, db: Session = Depends(get_db)):
+    db_event = Event(**event.dict())
+    try:
+        db.add(db_event)
+        db.commit()
+        db.refresh(db_event)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="An event with this smart contract address already exists",
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while saving the event: {str(e)}",
+        )
+    return db_event
+
+
+@app.get("/events/", response_model=List[EventResponse])
+async def get_all_events(
+    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+):
+    events = db.query(Event).offset(skip).limit(limit).all()
+    return events
+
+
 @app.post("/bets/", response_model=BetResponse)
 async def create_bet(bet: BetCreate, db: Session = Depends(get_db)):
-    db_bet = Bet(**bet.dict())
+    event = db.query(Event).filter(Event.id == bet.event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
 
+    db_bet = Bet(**bet.dict())
     try:
         db.add(db_bet)
         db.commit()
         db.refresh(db_bet)
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"An error occurred while saving the bet: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"An error occurred while saving the bet: {str(e)}"
+        )
 
     return db_bet
 
 
-@app.get("/bets/", response_model=List[BetResponse])
-async def get_all_bets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    bets = db.query(Bet).offset(skip).limit(limit).all()
-    return bets
+@app.get("/events/{event_id}/bets", response_model=List[BetResponse])
+async def get_bets_for_event(event_id: int, db: Session = Depends(get_db)):
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
 
-
-@app.get("/bets/{wallet_address}", response_model=List[BetResponse])
-async def get_bets_by_wallet(wallet_address: str, db: Session = Depends(get_db)):
-    bets = db.query(Bet).filter(Bet.wallet_address == wallet_address).all()
-    if not bets:
-        raise HTTPException(status_code=404, detail="No bets found for this wallet address")
+    bets = db.query(Bet).filter(Bet.event_id == event_id).all()
     return bets
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
