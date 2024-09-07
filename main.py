@@ -4,12 +4,22 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from typing import List
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Enum, ForeignKey
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    Enum,
+    ForeignKey,
+    JSON,
+    BigInteger,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import IntegrityError
 
 from models.bet import BetCreate, BetResponse
-from models.event import EventCreate, EventResponse
+from models.event import EventCreate, EventResponse, ContractsUpdate
 
 load_dotenv()
 
@@ -27,10 +37,12 @@ class Event(Base):
     __tablename__ = "events"
 
     id = Column(Integer, primary_key=True, index=True)
-    smart_contract_address = Column(String, unique=True, index=True)
-    network = Column(String)
+    request_id = Column(String, unique=True, index=True)
     title = Column(String)
     description = Column(String)
+    due_date = Column(BigInteger)
+    predict = Column(JSON, nullable=True)
+    contracts = Column(JSON, nullable=True)
     bets = relationship("Bet", back_populates="event")
 
 
@@ -56,9 +68,15 @@ def get_db():
         db.close()
 
 
-@app.post("/events/", response_model=EventResponse)
+@app.post("/event", response_model=EventResponse)
 async def create_event(event: EventCreate, db: Session = Depends(get_db)):
-    db_event = Event(**event.dict())
+    db_event = Event(
+        request_id=event.request_id,
+        title=event.title,
+        description=event.description,
+        due_date=event.due_date,
+        predict=event.predict.model_dump() if event.predict else None,
+    )
     try:
         db.add(db_event)
         db.commit()
@@ -66,8 +84,7 @@ async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(
-            status_code=400,
-            detail="An event with this smart contract address already exists",
+            status_code=400, detail="An event with this request ID already exists"
         )
     except Exception as e:
         db.rollback()
@@ -75,6 +92,20 @@ async def create_event(event: EventCreate, db: Session = Depends(get_db)):
             status_code=500,
             detail=f"An error occurred while saving the event: {str(e)}",
         )
+    return db_event
+
+
+@app.put("/event/{event_id}", response_model=EventResponse)
+async def update_event_contracts(
+    event_id: int, contracts: ContractsUpdate, db: Session = Depends(get_db)
+):
+    db_event = db.query(Event).filter(Event.id == event_id).first()
+    if not db_event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    db_event.contracts = contracts.contracts
+    db.commit()
+    db.refresh(db_event)
     return db_event
 
 

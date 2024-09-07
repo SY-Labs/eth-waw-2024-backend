@@ -10,15 +10,31 @@ class BaseSchema(BaseModel):
     )
 
 
+class PredictInfo(BaseModel):
+    price: str
+    symbol: str
+
+
 class EventCreate(BaseSchema):
-    smart_contract_address: str
-    network: str
+    request_id: str
     title: str
     description: str
+    due_date: int
+    predict: PredictInfo | None = None
 
 
-class EventResponse(EventCreate):
+class ContractsUpdate(BaseSchema):
+    contracts: dict[str, str]
+
+
+class EventResponse(BaseSchema):
     id: int
+    request_id: str
+    title: str
+    description: str
+    due_date: int
+    predict: PredictInfo | None = None
+    contracts: dict[str, str] | None = None
 
     class Config:
         from_attributes = True
