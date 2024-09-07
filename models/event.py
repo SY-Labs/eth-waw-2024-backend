@@ -28,7 +28,6 @@ class ContractsUpdate(BaseSchema):
 
 
 class EventResponse(BaseSchema):
-    id: int
     request_id: str
     title: str
     description: str

@@ -2,6 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 
 from sqlalchemy import (
@@ -25,6 +26,16 @@ load_dotenv()
 
 app = FastAPI()
 
+origins = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
@@ -36,8 +47,7 @@ Base = declarative_base()
 class Event(Base):
     __tablename__ = "events"
 
-    id = Column(Integer, primary_key=True, index=True)
-    request_id = Column(String, unique=True, index=True)
+    request_id = Column(String, primary_key=True, index=True)
     title = Column(String)
     description = Column(String)
     due_date = Column(BigInteger)
@@ -50,7 +60,7 @@ class Bet(Base):
     __tablename__ = "bets"
 
     id = Column(Integer, primary_key=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"))
+    event_request_id = Column(String, ForeignKey("events.request_id"))
     wallet_address = Column(String, index=True)
     prediction = Column(Enum("YES", "NO", name="prediction_type"))
     tokens = Column(Float)
@@ -95,11 +105,11 @@ async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     return db_event
 
 
-@app.put("/event/{event_id}", response_model=EventResponse)
+@app.put("/event/{request_id}", response_model=EventResponse)
 async def update_event_contracts(
-    event_id: int, contracts: ContractsUpdate, db: Session = Depends(get_db)
+    request_id: str, contracts: ContractsUpdate, db: Session = Depends(get_db)
 ):
-    db_event = db.query(Event).filter(Event.id == event_id).first()
+    db_event = db.query(Event).filter(Event.request_id == request_id).first()
     if not db_event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -117,9 +127,17 @@ async def get_all_events(
     return events
 
 
+@app.get("/event/{request_id}", response_model=EventResponse)
+async def get_event(request_id: str, db: Session = Depends(get_db)):
+    event = db.query(Event).filter(Event.request_id == request_id).first()
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+
 @app.post("/bets/", response_model=BetResponse)
 async def create_bet(bet: BetCreate, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == bet.event_id).first()
+    event = db.query(Event).filter(Event.request_id == bet.event_request_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -137,13 +155,13 @@ async def create_bet(bet: BetCreate, db: Session = Depends(get_db)):
     return db_bet
 
 
-@app.get("/events/{event_id}/bets", response_model=List[BetResponse])
-async def get_bets_for_event(event_id: int, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == event_id).first()
+@app.get("/events/{request_id}/bets", response_model=List[BetResponse])
+async def get_bets_for_event(request_id: str, db: Session = Depends(get_db)):
+    event = db.query(Event).filter(Event.request_id == request_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    bets = db.query(Bet).filter(Bet.event_id == event_id).all()
+    bets = db.query(Bet).filter(Bet.event_request_id == request_id).all()
     return bets
 
 

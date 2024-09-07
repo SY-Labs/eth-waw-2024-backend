@@ -13,7 +13,7 @@ class BaseSchema(BaseModel):
 
 
 class BetCreate(BaseSchema):
-    event_id: int
+    event_request_id: str
     wallet_address: str
     prediction: Literal["YES", "NO"]
     tokens: float = Field(gt=0)
