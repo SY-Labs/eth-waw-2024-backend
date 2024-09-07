@@ -25,3 +25,16 @@ class BetResponse(BetCreate):
 
     class Config:
         from_attributes = True
+
+
+class BetWithEventTitle(BaseSchema):
+    id: int
+    event_request_id: str
+    event_title: str
+    wallet_address: str
+    prediction: Literal["YES", "NO"]
+    tokens: float
+    token_name: str
+
+    class Config:
+        from_attributes = True

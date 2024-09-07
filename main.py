@@ -21,7 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import IntegrityError
 
-from models.bet import BetCreate, BetResponse
+from models.bet import BetCreate, BetResponse, BetWithEventTitle
 from models.event import EventCreate, EventResponse, ContractsUpdate
 
 load_dotenv()
@@ -209,6 +209,24 @@ async def get_event_statistics(request_id: str, db: Session = Depends(get_db)):
         "yes_bets": stats.yes_bets or 0,
         "no_bets": stats.no_bets or 0
     }
+
+
+@app.get("/bets", response_model=List[BetWithEventTitle], tags=["bets"])
+async def get_all_bets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    bets_with_events = db.query(Bet, Event.title).join(Event).order_by(Bet.id).offset(skip).limit(limit).all()
+
+    return [
+        BetWithEventTitle(
+            id=bet.id,
+            event_request_id=bet.event_request_id,
+            event_title=event_title,
+            wallet_address=bet.wallet_address,
+            prediction=bet.prediction,
+            tokens=bet.tokens,
+            token_name=bet.token_name
+        )
+        for bet, event_title in bets_with_events
+    ]
 
 
 if __name__ == "__main__":
