@@ -15,6 +15,8 @@ from sqlalchemy import (
     ForeignKey,
     JSON,
     BigInteger,
+    func,
+    case,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import IntegrityError
@@ -25,12 +27,9 @@ from models.event import EventCreate, EventResponse, ContractsUpdate
 load_dotenv()
 
 app = FastAPI()
-
-origins = ["*"]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,7 +77,7 @@ def get_db():
         db.close()
 
 
-@app.post("/event", response_model=EventResponse)
+@app.post("/events", tags=["events"],  response_model=EventResponse)
 async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     db_event = Event(
         request_id=event.request_id,
@@ -105,7 +104,7 @@ async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     return db_event
 
 
-@app.put("/event/{request_id}", response_model=EventResponse)
+@app.put("/events/{request_id}", tags=["events"], response_model=EventResponse)
 async def update_event_contracts(
     request_id: str, contracts: ContractsUpdate, db: Session = Depends(get_db)
 ):
@@ -119,7 +118,7 @@ async def update_event_contracts(
     return db_event
 
 
-@app.get("/events/", response_model=List[EventResponse])
+@app.get("/events/", tags=["events"], response_model=List[EventResponse])
 async def get_all_events(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 ):
@@ -127,7 +126,7 @@ async def get_all_events(
     return events
 
 
-@app.get("/event/{request_id}", response_model=EventResponse)
+@app.get("/events/{request_id}", tags=["events"], response_model=EventResponse)
 async def get_event(request_id: str, db: Session = Depends(get_db)):
     event = db.query(Event).filter(Event.request_id == request_id).first()
     if event is None:
@@ -135,7 +134,7 @@ async def get_event(request_id: str, db: Session = Depends(get_db)):
     return event
 
 
-@app.post("/bets/", response_model=BetResponse)
+@app.post("/bets/", tags=["bets"], response_model=BetResponse)
 async def create_bet(bet: BetCreate, db: Session = Depends(get_db)):
     event = db.query(Event).filter(Event.request_id == bet.event_request_id).first()
     if not event:
@@ -155,7 +154,7 @@ async def create_bet(bet: BetCreate, db: Session = Depends(get_db)):
     return db_bet
 
 
-@app.get("/events/{request_id}/bets", response_model=List[BetResponse])
+@app.get("/events/{request_id}/bets", tags=["bets"], response_model=List[BetResponse])
 async def get_bets_for_event(request_id: str, db: Session = Depends(get_db)):
     event = db.query(Event).filter(Event.request_id == request_id).first()
     if not event:
@@ -163,6 +162,52 @@ async def get_bets_for_event(request_id: str, db: Session = Depends(get_db)):
 
     bets = db.query(Bet).filter(Bet.event_request_id == request_id).all()
     return bets
+
+@app.get("/top-betters", tags=["stats"])
+async def get_top_betters(limit: int = 10, db: Session = Depends(get_db)):
+    top_betters = db.query(
+        Bet.wallet_address,
+        func.sum(Bet.tokens).label('total_tokens')
+    ).group_by(Bet.wallet_address).order_by(func.sum(Bet.tokens).desc()).limit(limit).all()
+
+    return [{"wallet_address": better[0], "total_tokens": better[1]} for better in top_betters]
+
+
+@app.get("/largest-bet", tags=["stats"])
+async def get_largest_bet(db: Session = Depends(get_db)):
+    largest_bet = db.query(Bet).order_by(Bet.tokens.desc()).first()
+    if not largest_bet:
+        raise HTTPException(status_code=404, detail="No bets found")
+
+    return {
+        "event_request_id": largest_bet.event_request_id,
+        "wallet_address": largest_bet.wallet_address,
+        "prediction": largest_bet.prediction,
+        "tokens": largest_bet.tokens
+    }
+
+
+@app.get("/events/{request_id}", tags=["stats"])
+async def get_event_statistics(request_id: str, db: Session = Depends(get_db)):
+    event = db.query(Event).filter(Event.request_id == request_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    stats = db.query(
+        func.count().label('total_bets'),
+        func.sum(Bet.tokens).label('total_tokens'),
+        func.sum(case((Bet.prediction == 'YES', 1), else_=0)).label('yes_bets'),
+        func.sum(case((Bet.prediction == 'NO', 1), else_=0)).label('no_bets')
+    ).filter(Bet.event_request_id == request_id).first()
+
+    return {
+        "request_id": request_id,
+        "title": event.title,
+        "total_bets": stats.total_bets or 0,
+        "total_tokens": float(stats.total_tokens or 0),
+        "yes_bets": stats.yes_bets or 0,
+        "no_bets": stats.no_bets or 0
+    }
 
 
 if __name__ == "__main__":
