@@ -29,6 +29,7 @@ class Event(Base):
     id = Column(Integer, primary_key=True, index=True)
     smart_contract_address = Column(String, unique=True, index=True)
     network = Column(String)
+    title = Column(String)
     description = Column(String)
     bets = relationship("Bet", back_populates="event")
 

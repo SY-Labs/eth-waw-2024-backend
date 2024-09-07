@@ -13,6 +13,7 @@ class BaseSchema(BaseModel):
 class EventCreate(BaseSchema):
     smart_contract_address: str
     network: str
+    title: str
     description: str
 
 
