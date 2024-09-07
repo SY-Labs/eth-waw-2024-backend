@@ -118,7 +118,7 @@ async def update_event_contracts(
     return db_event
 
 
-@app.get("/events/", tags=["events"], response_model=List[EventResponse])
+@app.get("/events", tags=["events"], response_model=List[EventResponse])
 async def get_all_events(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 ):
@@ -134,7 +134,7 @@ async def get_event(request_id: str, db: Session = Depends(get_db)):
     return event
 
 
-@app.post("/bets/", tags=["bets"], response_model=BetResponse)
+@app.post("/bets", tags=["bets"], response_model=BetResponse)
 async def create_bet(bet: BetCreate, db: Session = Depends(get_db)):
     event = db.query(Event).filter(Event.request_id == bet.event_request_id).first()
     if not event:
