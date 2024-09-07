@@ -64,6 +64,7 @@ class Bet(Base):
     prediction = Column(Enum("YES", "NO", name="prediction_type"))
     tokens = Column(Float)
     event = relationship("Event", back_populates="bets")
+    token_name = Column(String)
 
 
 Base.metadata.create_all(bind=engine)

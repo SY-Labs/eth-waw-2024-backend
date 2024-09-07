@@ -17,6 +17,7 @@ class BetCreate(BaseSchema):
     wallet_address: str
     prediction: Literal["YES", "NO"]
     tokens: float = Field(gt=0)
+    token_name: str
 
 
 class BetResponse(BetCreate):
